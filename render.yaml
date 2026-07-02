@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: fund-dashboard
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 2 -b 0.0.0.0:$PORT --timeout 120 app:app
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    plan: free
+    # 免费计划：15分钟无访问休眠，下次访问30秒唤醒
+    # 如需持续运行，可设置定时ping（见下方注释）
+    
+    # 健康检查，保持服务活跃
+    healthCheckPath: /api/market

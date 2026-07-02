@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A股资金流向看板 - 28大板块实时监控</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0e1a;
+            color: #e0e0e0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            min-height: 100vh;
+        }
+        .header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #0d1421 0%, #1a2332 100%);
+            border-bottom: 1px solid #1e3a5f;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .header-left { display: flex; align-items: center; gap: 16px; }
+        .header h1 { font-size: 20px; font-weight: 600; color: #fff; letter-spacing: 0.5px; }
+        .header-tag { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #1e3a5f; color: #64b5f6; }
+        .header-right { display: flex; align-items: center; gap: 16px; font-size: 13px; color: #8899aa; }
+        .header-right .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #4caf50; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .header-right .update-time { color: #64b5f6; }
+        .refresh-btn { padding: 4px 12px; border: 1px solid #1e3a5f; background: #0d1421; color: #64b5f6; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+        .refresh-btn:hover { background: #1e3a5f; }
+        .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .api-status { font-size: 11px; padding: 2px 8px; border-radius: 4px; }
+        .api-status.online { background: #4caf5022; color: #4caf50; }
+        .api-status.offline { background: #ff4d4f22; color: #ff4d4f; }
+        .container { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
+        .market-section { margin-bottom: 24px; }
+        .section-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; padding-left: 10px; border-left: 3px solid #64b5f6; }
+        .market-cards { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+        .market-card {
+            background: linear-gradient(135deg, #111827 0%, #1a2332 100%);
+            border: 1px solid #1e3a5f; border-radius: 10px; padding: 16px;
+            text-align: center; transition: transform 0.2s, border-color 0.2s;
+        }
+        .market-card:hover { transform: translateY(-2px); border-color: #2a4a6f; }
+        .market-card .card-label { font-size: 13px; color: #8899aa; margin-bottom: 8px; }
+        .market-card .card-value { font-size: 22px; font-weight: 700; font-family: 'Courier New', monospace; }
+        .market-card .card-sub { font-size: 11px; margin-top: 4px; color: #667788; }
+        .market-card.main-force { border-color: #ff6b35; background: linear-gradient(135deg, #1a0f00 0%, #2a1a00 100%); }
+        .market-card.retail { border-color: #4caf50; background: linear-gradient(135deg, #0a1a0a 0%, #1a2a1a 100%); }
+        .value-up { color: #ff4d4f; }
+        .value-down { color: #4caf50; }
+        .value-zero { color: #8899aa; }
+        .sectors-section { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .sector-panel { background: #111827; border: 1px solid #1e3a5f; border-radius: 10px; overflow: hidden; }
+        .panel-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; background: linear-gradient(135deg, #0d1421 0%, #1a2332 100%); border-bottom: 1px solid #1e3a5f; }
+        .panel-header h3 { font-size: 15px; font-weight: 600; }
+        .inflow-badge { background: #ff4d4f22; color: #ff4d4f; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+        .outflow-badge { background: #4caf5022; color: #4caf50; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+        .sector-list { max-height: 600px; overflow-y: auto; padding: 8px; }
+        .sector-list::-webkit-scrollbar { width: 4px; }
+        .sector-list::-webkit-scrollbar-track { background: transparent; }
+        .sector-list::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 2px; }
+        .sector-item { display: flex; align-items: center; padding: 10px 12px; border-radius: 6px; cursor: pointer; transition: background 0.15s; margin-bottom: 4px; }
+        .sector-item:hover { background: #1a2332; }
+        .sector-rank { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; margin-right: 12px; flex-shrink: 0; }
+        .rank-1 { background: #ff4d4f33; color: #ff4d4f; }
+        .rank-2 { background: #ff6b3533; color: #ff6b35; }
+        .rank-3 { background: #ffa94033; color: #ffa940; }
+        .rank-other { background: #1e3a5f; color: #8899aa; }
+        .sector-info { flex: 1; min-width: 0; }
+        .sector-name { font-size: 14px; font-weight: 500; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sector-bar-bg { height: 4px; background: #1e3a5f; border-radius: 2px; overflow: hidden; }
+        .sector-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s ease; }
+        .bar-inflow { background: linear-gradient(90deg, #ff4d4f, #ff6b35); }
+        .bar-outflow { background: linear-gradient(90deg, #4caf50, #8bc34a); }
+        .sector-value { text-align: right; margin-left: 12px; flex-shrink: 0; }
+        .sector-value .amount { font-size: 14px; font-weight: 600; font-family: 'Courier New', monospace; }
+        .sector-value .count { font-size: 11px; color: #667788; margin-top: 2px; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; backdrop-filter: blur(4px); }
+        .modal-overlay.active { display: flex; }
+        .modal { background: #111827; border: 1px solid #1e3a5f; border-radius: 12px; width: 90%; max-width: 900px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; animation: modalIn 0.2s ease; }
+        @keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: linear-gradient(135deg, #0d1421 0%, #1a2332 100%); border-bottom: 1px solid #1e3a5f; }
+        .modal-header h3 { font-size: 16px; }
+        .modal-header .sector-summary { font-size: 12px; color: #8899aa; margin-top: 4px; }
+        .modal-close { background: none; border: 1px solid #1e3a5f; color: #8899aa; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .modal-close:hover { background: #1e3a5f; color: #fff; }
+        .modal-body { flex: 1; overflow-y: auto; padding: 0; }
+        .stock-table { width: 100%; border-collapse: collapse; }
+        .stock-table thead th { position: sticky; top: 0; background: #0d1421; padding: 10px 12px; text-align: right; font-size: 12px; font-weight: 500; color: #8899aa; border-bottom: 1px solid #1e3a5f; white-space: nowrap; }
+        .stock-table thead th:first-child { text-align: left; padding-left: 20px; }
+        .stock-table tbody tr { border-bottom: 1px solid #162033; transition: background 0.1s; }
+        .stock-table tbody tr:hover { background: #1a2332; }
+        .stock-table tbody td { padding: 10px 12px; text-align: right; font-size: 13px; font-family: 'Courier New', monospace; white-space: nowrap; }
+        .stock-table tbody td:first-child { text-align: left; padding-left: 20px; font-family: inherit; }
+        .stock-name { font-weight: 500; }
+        .stock-code { font-size: 11px; color: #667788; font-family: 'Courier New', monospace; }
+        .td-up { color: #ff4d4f; }
+        .td-down { color: #4caf50; }
+        .td-zero { color: #8899aa; }
+        .footer { text-align: center; padding: 20px; font-size: 11px; color: #445566; }
+        .loading { display: flex; justify-content: center; align-items: center; padding: 40px; color: #8899aa; }
+        .spinner { width: 20px; height: 20px; border: 2px solid #1e3a5f; border-top-color: #64b5f6; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 10px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .demo-notice { background: #1e3a5f44; border: 1px solid #1e3a5f; border-radius: 6px; padding: 10px 16px; margin-bottom: 16px; font-size: 12px; color: #8899aa; text-align: center; }
+        .demo-notice .code { background: #0d1421; padding: 2px 6px; border-radius: 3px; font-family: monospace; color: #64b5f6; }
+        @media (max-width: 1200px) { .market-cards { grid-template-columns: repeat(3, 1fr); } .sectors-section { grid-template-columns: 1fr; } }
+        @media (max-width: 768px) { .market-cards { grid-template-columns: repeat(2, 1fr); } .header h1 { font-size: 16px; } .container { padding: 12px; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <h1>A股资金流向看板</h1>
+            <span class="header-tag">28大板块 · 201只个股</span>
+        </div>
+        <div class="header-right">
+            <span class="api-status offline" id="apiStatus">离线模式</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <div class="live-dot"></div><span>实时</span>
+            </div>
+            <span>数据更新: <span class="update-time" id="updateTime">--</span></span>
+            <button class="refresh-btn" id="refreshBtn" onclick="manualRefresh()">刷新</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="demo-notice" id="demoNotice" style="display:none;">
+            当前展示为模拟数据。如需实时数据，请在本地启动后端服务：<span class="code">bash start.sh</span>
+        </div>
+
+        <div class="market-section">
+            <div class="section-title">大盘资金流向</div>
+            <div class="market-cards" id="marketCards">
+                <div class="loading"><div class="spinner"></div>加载中...</div>
+            </div>
+        </div>
+
+        <div class="section-title">板块资金流向排行</div>
+        <div class="sectors-section" id="sectorsSection">
+            <div class="sector-panel">
+                <div class="panel-header">
+                    <h3 style="color: #ff4d4f;">资金流入排行</h3>
+                    <span class="inflow-badge">净流入</span>
+                </div>
+                <div class="sector-list" id="inflowList"><div class="loading"><div class="spinner"></div>加载中...</div></div>
+            </div>
+            <div class="sector-panel">
+                <div class="panel-header">
+                    <h3 style="color: #4caf50;">资金流出排行</h3>
+                    <span class="outflow-badge">净流出</span>
+                </div>
+                <div class="sector-list" id="outflowList"><div class="loading"><div class="spinner"></div>加载中...</div></div>
+            </div>
+        </div>
+
+        <div class="footer">
+            数据来源: 同花顺iFinD · 资金流向基于成交额与涨跌幅估算模型 · 仅供参考
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div>
+                    <h3 id="modalTitle">板块个股明细</h3>
+                    <div class="sector-summary" id="modalSummary"></div>
+                </div>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <table class="stock-table">
+                    <thead><tr><th>个股</th><th>最新价</th><th>涨跌幅</th><th>成交额</th><th>净流入</th><th>超大单</th><th>大单</th><th>中单</th><th>小单</th></tr></thead>
+                    <tbody id="modalTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 配置 ====================
+        const API_BASE = ''; // 使用相对路径
+        let isOnline = false;
+        let sectorDataCache = [];
+
+        // ==================== 工具函数 ====================
+        function formatAmount(val) {
+            if (val === undefined || val === null) return '--';
+            const absVal = Math.abs(val);
+            if (absVal >= 1e8) return (val / 1e8).toFixed(2) + '亿';
+            if (absVal >= 1e4) return (val / 1e4).toFixed(2) + '万';
+            return val.toFixed(2);
+        }
+        function formatPrice(val) { return val === undefined || val === null ? '--' : val.toFixed(2); }
+        function formatPct(val) {
+            if (val === undefined || val === null) return '--';
+            const sign = val >= 0 ? '+' : ''; return sign + val.toFixed(2) + '%';
+        }
+        function getValueClass(val) { return val > 0 ? 'value-up' : val < 0 ? 'value-down' : 'value-zero'; }
+        function getTdClass(val) { return val > 0 ? 'td-up' : val < 0 ? 'td-down' : 'td-zero'; }
+
+        // ==================== 模拟数据生成 ====================
+        function generateDemoData() {
+            const sectors = [
+                '半导体','存储芯片','证券','人形机器人','MLCC','军工','化学纤维','玻璃玻纤',
+                'AI芯片','电力','银行','白酒','人工智能','有色金属','网络游戏','化学制药',
+                '国产芯片','消费电子','创新药','商业航天','锂电池','可控核聚变','PCB',
+                '液冷概念','光通信模块','CPO概念','通信技术','储能概念'
+            ];
+            const stocks_pool = [
+                ['中芯国际','688981.SH'],['北方华创','002371.SZ'],['中微公司','688012.SH'],
+                ['兆易创新','603986.SH'],['澜起科技','688008.SH'],['中信证券','600030.SH'],
+                ['东方财富','300059.SZ'],['华泰证券','601688.SH'],['绿的谐波','688017.SH'],
+                ['汇川技术','300124.SZ'],['三花智控','002050.SZ'],['中航沈飞','600760.SH'],
+                ['紫金矿业','601899.SH'],['北方稀土','600111.SH'],['贵州茅台','600519.SH'],
+                ['五粮液','000858.SZ'],['宁德时代','300750.SZ'],['比亚迪','002594.SZ'],
+                ['阳光电源','300274.SZ'],['中际旭创','300308.SZ'],['中兴通讯','000063.SZ'],
+                ['科大讯飞','002230.SZ'],['恒瑞医药','600276.SH'],['立讯精密','002475.SZ'],
+                ['歌尔股份','002241.SZ'],['海光信息','688041.SH'],['寒武纪','688256.SH'],
+                ['长江电力','600900.SH']
+            ];
+
+            const sectorResults = sectors.map((name, idx) => {
+                const net = (Math.random() - 0.5) * 50000000;
+                const absNet = Math.abs(net);
+                const main = absNet * 0.7 * Math.sign(net);
+                const retail = absNet * 0.3 * Math.sign(net);
+                return {
+                    id: idx + 1, name,
+                    net_inflow: Math.round(net),
+                    super_large: Math.round(main * 0.6),
+                    large: Math.round(main * 0.4),
+                    medium: Math.round(retail * 0.6),
+                    small: Math.round(retail * 0.4),
+                    main_force: Math.round(main),
+                    retail: Math.round(retail),
+                    stock_count: 5 + Math.floor(Math.random() * 6),
+                    stocks: Array.from({length: 5 + Math.floor(Math.random() * 3)}, (_, i) => {
+                        const s = stocks_pool[(idx * 3 + i) % stocks_pool.length];
+                        const price = 20 + Math.random() * 200;
+                        const pct = (Math.random() - 0.5) * 8;
+                        const amt = 1000000 + Math.random() * 20000000;
+                        const ffNet = amt * Math.tanh(3 * pct / 100) * 0.5;
+                        return {
+                            name: s[0], code: s[1].split('.')[0], ticker: s[1],
+                            price, pct_change: Math.round(pct * 100) / 100,
+                            amount: Math.round(amt),
+                            fund_flow: {
+                                net: Math.round(ffNet),
+                                super_large: Math.round(Math.abs(ffNet) * 0.4 * Math.sign(ffNet)),
+                                large: Math.round(Math.abs(ffNet) * 0.3 * Math.sign(ffNet)),
+                                medium: Math.round(Math.abs(ffNet) * 0.2 * Math.sign(ffNet)),
+                                small: Math.round(Math.abs(ffNet) * 0.1 * Math.sign(ffNet))
+                            }
+                        };
+                    }).sort((a, b) => b.fund_flow.net - a.fund_flow.net)
+                };
+            });
+
+            const market = {
+                super_large: sectorResults.reduce((s, x) => s + x.super_large, 0),
+                large: sectorResults.reduce((s, x) => s + x.large, 0),
+                medium: sectorResults.reduce((s, x) => s + x.medium, 0),
+                small: sectorResults.reduce((s, x) => s + x.small, 0),
+                main_force: sectorResults.reduce((s, x) => s + x.main_force, 0),
+                retail: sectorResults.reduce((s, x) => s + x.retail, 0),
+                net_inflow: sectorResults.reduce((s, x) => s + x.net_inflow, 0)
+            };
+
+            return { market, sectors: sectorResults, update_time: new Date().toLocaleString('zh-CN') };
+        }
+
+        // ==================== 渲染 ====================
+        function renderMarketCards(data) {
+            const items = [
+                { key: 'super_large', label: '超大单', sub: '机构大单' },
+                { key: 'large', label: '大单', sub: '机构中单' },
+                { key: 'medium', label: '中单', sub: '散户中户' },
+                { key: 'small', label: '小单', sub: '散户小单' },
+                { key: 'main_force', label: '主力资金', sub: '超大单+大单', highlight: 'main-force' },
+                { key: 'retail', label: '散户资金', sub: '中单+小单', highlight: 'retail' }
+            ];
+            document.getElementById('marketCards').innerHTML = items.map(item => {
+                const val = data[item.key] || 0;
+                return `<div class="market-card ${item.highlight || ''}"><div class="card-label">${item.label}</div><div class="card-value ${getValueClass(val)}">${formatAmount(val)}</div><div class="card-sub">${item.sub}</div></div>`;
+            }).join('');
+        }
+
+        function renderSectorList(sectors) {
+            sectorDataCache = sectors;
+            const inflow = sectors.filter(s => s.net_inflow >= 0).sort((a, b) => b.net_inflow - a.net_inflow);
+            const outflow = sectors.filter(s => s.net_inflow < 0).sort((a, b) => a.net_inflow - b.net_inflow);
+            const maxIn = inflow.length > 0 ? inflow[0].net_inflow : 1;
+            const maxOut = outflow.length > 0 ? Math.abs(outflow[0].net_inflow) : 1;
+
+            const render = (list, isInflow) => list.map((s, i) => {
+                const bw = ((isInflow ? s.net_inflow : Math.abs(s.net_inflow)) / (isInflow ? maxIn : maxOut) * 100).toFixed(1);
+                const rc = i < 3 ? `rank-${i+1}` : 'rank-other';
+                return `<div class="sector-item" onclick="openSectorModal(${s.id})"><div class="sector-rank ${rc}">${i+1}</div><div class="sector-info"><div class="sector-name">${s.name}</div><div class="sector-bar-bg"><div class="sector-bar-fill ${isInflow ? 'bar-inflow' : 'bar-outflow'}" style="width:${bw}%"></div></div></div><div class="sector-value"><div class="amount ${isInflow ? 'value-up' : 'value-down'}">${formatAmount(s.net_inflow)}</div><div class="count">${s.stock_count}只个股</div></div></div>`;
+            }).join('') || `<div style="padding:40px;text-align:center;color:#667788;">暂无数据</div>`;
+
+            document.getElementById('inflowList').innerHTML = render(inflow, true);
+            document.getElementById('outflowList').innerHTML = render(outflow, false);
+        }
+
+        // ==================== 弹窗 ====================
+        async function openSectorModal(sectorId) {
+            const overlay = document.getElementById('modalOverlay');
+            overlay.classList.add('active');
+            document.getElementById('modalTitle').textContent = '加载中...';
+            document.getElementById('modalSummary').textContent = '';
+            document.getElementById('modalTableBody').innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;"><div class="spinner" style="display:inline-block;margin-right:8px;"></div>加载中...</td></tr>';
+
+            try {
+                let sector;
+                if (isOnline) {
+                    const res = await fetch(`${API_BASE}/api/sectors/${sectorId}/stocks`);
+                    const json = await res.json();
+                    if (!json.success) throw new Error(json.error);
+                    sector = json.data;
+                } else {
+                    sector = sectorDataCache.find(s => s.id === sectorId);
+                    if (!sector) throw new Error('板块不存在');
+                }
+
+                document.getElementById('modalTitle').textContent = sector.name;
+                document.getElementById('modalSummary').innerHTML = `板块净流入: <span class="${getTdClass(sector.net_inflow)}">${formatAmount(sector.net_inflow)}</span> · 主力: <span class="${getTdClass(sector.main_force)}">${formatAmount(sector.main_force)}</span> · 散户: <span class="${getTdClass(sector.retail)}">${formatAmount(sector.retail)}</span> · ${sector.stocks.length}只个股`;
+
+                document.getElementById('modalTableBody').innerHTML = sector.stocks.map(stock => {
+                    const ff = stock.fund_flow;
+                    return `<tr><td><div class="stock-name">${stock.name}</div><div class="stock-code">${stock.code}</div></td><td>${formatPrice(stock.price)}</td><td class="${getTdClass(stock.pct_change)}">${formatPct(stock.pct_change)}</td><td>${formatAmount(stock.amount)}</td><td class="${getTdClass(ff.net)}">${formatAmount(ff.net)}</td><td class="${getTdClass(ff.super_large)}">${formatAmount(ff.super_large)}</td><td class="${getTdClass(ff.large)}">${formatAmount(ff.large)}</td><td class="${getTdClass(ff.medium)}">${formatAmount(ff.medium)}</td><td class="${getTdClass(ff.small)}">${formatAmount(ff.small)}</td></tr>`;
+                }).join('');
+            } catch (e) {
+                document.getElementById('modalTableBody').innerHTML = `<tr><td colspan="9" style="text-align:center;padding:40px;color:#ff4d4f;">加载失败: ${e.message}</td></tr>`;
+            }
+        }
+
+        function closeModal(event) {
+            if (!event || event.target === document.getElementById('modalOverlay')) {
+                document.getElementById('modalOverlay').classList.remove('active');
+            }
+        }
+
+        // ==================== 数据加载 ====================
+        // 加载优先级: 1)静态JSON文件 2)API接口 3)模拟数据
+        async function loadData() {
+            // 1. 先尝试加载静态JSON文件（GitHub Pages/Cloudflare Pages方案）
+            try {
+                const res = await fetch(`${API_BASE}/static/data.json?t=${Date.now()}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    isOnline = true;
+                    document.getElementById('apiStatus').textContent = '已缓存';
+                    document.getElementById('apiStatus').className = 'api-status online';
+                    document.getElementById('demoNotice').style.display = 'none';
+                    renderMarketCards(data.market);
+                    renderSectorList(data.sectors);
+                    document.getElementById('updateTime').textContent = data.update_time + ' (缓存)';
+                    return;
+                }
+            } catch (e) {
+                console.log('静态JSON不存在，尝试API...');
+            }
+
+            // 2. 尝试API接口（本地/Render方案）
+            try {
+                const [marketRes, sectorsRes] = await Promise.all([
+                    fetch(`${API_BASE}/api/market`),
+                    fetch(`${API_BASE}/api/sectors`)
+                ]);
+                const marketJson = await marketRes.json();
+                const sectorsJson = await sectorsRes.json();
+
+                if (marketJson.success && sectorsJson.success) {
+                    isOnline = true;
+                    document.getElementById('apiStatus').textContent = '实时';
+                    document.getElementById('apiStatus').className = 'api-status online';
+                    document.getElementById('demoNotice').style.display = 'none';
+                    renderMarketCards(marketJson.data);
+                    renderSectorList(sectorsJson.data);
+                    document.getElementById('updateTime').textContent = marketJson.update_time || '--';
+                    return;
+                }
+            } catch (e) {
+                console.log('API不可用');
+            }
+
+            // 3. 回退到模拟数据
+            if (!isOnline) {
+                console.log('切换到模拟模式');
+                const demo = generateDemoData();
+                document.getElementById('apiStatus').textContent = '模拟';
+                document.getElementById('apiStatus').className = 'api-status offline';
+                document.getElementById('demoNotice').style.display = 'block';
+                renderMarketCards(demo.market);
+                renderSectorList(demo.sectors);
+                document.getElementById('updateTime').textContent = demo.update_time;
+            }
+        }
+
+        async function manualRefresh() {
+            const btn = document.getElementById('refreshBtn');
+            btn.disabled = true; btn.textContent = '刷新中...';
+            try {
+                if (isOnline) {
+                    await fetch(`${API_BASE}/api/refresh`, { method: 'POST' });
+                    await new Promise(r => setTimeout(r, 8000));
+                }
+                await loadData();
+            } catch (e) { console.error('刷新失败:', e); }
+            finally { btn.disabled = false; btn.textContent = '刷新'; }
+        }
+
+        // ==================== 初始化 ====================
+        loadData();
+        setInterval(loadData, 60000);
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+    </script>
+</body>
+</html>
