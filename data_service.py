@@ -9,6 +9,7 @@ import time
 import subprocess
 import csv
 import io
+import re
 from datetime import datetime, timedelta
 from threading import Lock
 import logging
@@ -16,52 +17,8 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger(__name__)
 
-# 加载板块配置
-with open('/mnt/agents/upload/28大板块A股完整代表性个股 ## 1..txt', 'r', encoding='utf-8') as f:
-    content = f.read()
-
-import re
-
-SECTORS = []
-current_sector = None
-
-for line in content.split('\n'):
-    line = line.strip()
-    if not line:
-        continue
-    sector_match = re.match(r'##\s*(\d+)\.\s*(.+)', line)
-    if sector_match:
-        sector_id = int(sector_match.group(1))
-        sector_name = sector_match.group(2).strip()
-        sector_name = re.sub(r'[（(].*?[）)]', '', sector_name).strip()
-        current_sector = {
-            'id': sector_id,
-            'name': sector_name,
-            'stocks': []
-        }
-        SECTORS.append(current_sector)
-        continue
-    
-    stock_match = re.match(r'(\d+)\.\s*([\u4e00-\u9fa5]+)\s+(\d{6})', line)
-    if stock_match and current_sector:
-        stock_name = stock_match.group(2)
-        stock_code = stock_match.group(3)
-        code_num = int(stock_code)
-        if code_num >= 688000:
-            suffix = '.SH'
-        elif code_num >= 600000:
-            suffix = '.SH'
-        elif code_num >= 300000:
-            suffix = '.SZ'
-        else:
-            suffix = '.SZ'
-        
-        ticker = f"{stock_code}{suffix}"
-        current_sector['stocks'].append({
-            'name': stock_name,
-            'code': stock_code,
-            'ticker': ticker
-        })
+# 从内嵌模块加载板块配置（兼容云端部署，无需外部文件）
+from sectors_data import SECTORS
 
 # 建立股票到板块的映射
 STOCK_TO_SECTOR = {}
