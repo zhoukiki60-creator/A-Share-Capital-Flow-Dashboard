@@ -23,7 +23,7 @@ CORS(app)
 @app.route('/')
 def index():
     """主页面"""
-    return send_from_directory('static', 'index.html')
+    return send_from_directory('.', 'index.html')
 
 
 @app.route('/api/market')
